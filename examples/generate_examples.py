@@ -1,4 +1,8 @@
-"""Generate the documented synthetic examples and figures using the real API."""
+"""Generate synthetic numerical test fixtures using the real API.
+
+These outputs exercise interfaces and sampling behavior; they are not the
+public-facing scientific cleaning examples.
+"""
 from pathlib import Path
 import csv,sys
 import numpy as np
@@ -6,7 +10,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"python"))
 from eeg_clean import Cleaner
 
-out=Path(__file__).resolve().parent/"generated";out.mkdir(exist_ok=True)
+out=Path(__file__).resolve().parent/"generated"/"synthetic_test_outputs";out.mkdir(parents=True,exist_ok=True)
 rng=np.random.default_rng(20261117)
 
 def make(fs,seconds,events):

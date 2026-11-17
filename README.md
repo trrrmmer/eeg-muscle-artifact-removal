@@ -23,15 +23,16 @@ be applied blindly to ordinary cerebral high-frequency activity.
 - Sampling-rate-independent parameters expressed in seconds and hertz.
 - Per-pass and per-event diagnostics, including rejected fits.
 - CMake builds for Linux, Windows, macOS Intel, and macOS Apple Silicon.
-- Cross-platform CI and the public illustrated manual use synthetic,
-  non-identifying data only. No empirical EEG arrays or figures are included.
+- Cross-platform CI uses synthetic data only. Public scientific figures use
+  approved, non-identifying rendered empirical intervals; raw EEG arrays and
+  private provenance are not included.
 
 ## Illustrated user manual
 
 The [illustrated English user manual](docs/manual/GaborFit_User_Manual_0.2.0.pdf)
 covers installation, native C++, Python `ctypes`, MATLAB MEX and command-line
-use, parameter selection, troubleshooting, scientific limitations and
-reproducible synthetic cleaning examples.
+use, parameter selection, troubleshooting, scientific limitations and genuine
+rendered ICA-component cleaning examples.
 
 | Platform | Native build | Interfaces |
 |---|---|---|
@@ -76,7 +77,7 @@ indices are zero-based and windows are inclusive.
 - [Installation on each platform](INSTALL.md)
 - [Practical user guide](USER_GUIDE.md)
 - [Parameter selection and tuning](PARAMETER_GUIDE.md)
-- [Reproducible synthetic examples](EXAMPLES.md)
+- [Empirical EEG/ICA cleaning examples](EXAMPLES.md)
 - [API and ABI reference](API.md)
 - [Scientific and technical limitations](SCIENTIFIC_LIMITATIONS.md)
 - [Illustrated empirical user manual](docs/manual/GaborFit_User_Manual_0.2.0.pdf)
