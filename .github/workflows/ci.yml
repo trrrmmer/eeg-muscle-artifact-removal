@@ -1,0 +1,128 @@
+name: EEG Muscle Artifact Removal Tool CI
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            architecture: x86-64
+          - os: windows-latest
+            architecture: x86-64
+          - os: macos-15-intel
+            architecture: x86-64
+            cmake_arch: x86_64
+          - os: macos-15
+            architecture: arm64
+            cmake_arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: cmake -S . -B build -DGABORFIT_ENABLE_CERES=OFF -DGABORFIT_USE_SYSTEM_EIGEN=OFF -DCMAKE_BUILD_TYPE=Release
+      - name: Configure (macOS native architecture)
+        if: runner.os == 'macOS'
+        run: cmake -S . -B build -DGABORFIT_ENABLE_CERES=OFF -DGABORFIT_USE_SYSTEM_EIGEN=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_arch }}
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake -S . -B build -A x64 -DGABORFIT_ENABLE_CERES=OFF -DGABORFIT_USE_SYSTEM_EIGEN=OFF
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test Python ctypes wrapper
+        run: |
+          python python/verify_hashes.py
+          python -m pip install --disable-pip-version-check numpy
+          python python/test_ctypes.py
+          python python/test_eeg_clean_ctypes.py
+          python examples/clean_synthetic.py
+      - name: Run native cleaner example (Unix)
+        if: runner.os != 'Windows'
+        run: ./build/gaborfit_clean_example
+      - name: Run native cleaner example (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '& build/Release/gaborfit_clean_example.exe'
+      - name: Test synthetic sampling/window/bound matrix
+        run: |
+          python python/benchmark_synthetic.py
+          python python/benchmark_synthetic_edges.py
+      - name: Check exported C ABI symbols (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          nm -D --defined-only build/libgaborfit.so | grep ' gaborfit_fit$'
+          nm -D --defined-only build/libgaborfit.so | grep ' gaborfit_abi_version$'
+          nm -D --defined-only build/libgaborfit_eeg.so | grep ' gaborfit_eeg_clean$'
+          nm -D --defined-only build/libgaborfit_eeg.so | grep ' gaborfit_eeg_abi_version$'
+      - name: Check exported C ABI symbols (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          nm -gU build/libgaborfit.dylib | grep ' _gaborfit_fit$'
+          nm -gU build/libgaborfit.dylib | grep ' _gaborfit_abi_version$'
+          nm -gU build/libgaborfit_eeg.dylib | grep ' _gaborfit_eeg_clean$'
+          nm -gU build/libgaborfit_eeg.dylib | grep ' _gaborfit_eeg_abi_version$'
+      - name: Check exported C ABI symbols (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exportLines = & dumpbin.exe /exports build/Release/gaborfit.dll 2>&1
+          $dumpbinExitCode = $LASTEXITCODE
+          $exportText = $exportLines -join [Environment]::NewLine
+          if ($dumpbinExitCode -ne 0) {
+            Write-Host 'Complete dumpbin output:'
+            Write-Host $exportText
+            throw "dumpbin failed with exit code $dumpbinExitCode"
+          }
+          $fitPattern = '(?m)^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+gaborfit_fit(?:\s|$)'
+          $abiPattern = '(?m)^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+gaborfit_abi_version(?:\s|$)'
+          $missing = @()
+          if (-not [regex]::IsMatch($exportText, $fitPattern)) { $missing += 'gaborfit_fit' }
+          if (-not [regex]::IsMatch($exportText, $abiPattern)) { $missing += 'gaborfit_abi_version' }
+          if ($missing.Count -ne 0) {
+            Write-Host 'Complete dumpbin export table:'
+            Write-Host $exportText
+            throw "Missing exact undecorated C ABI export(s): $($missing -join ', ')"
+          }
+          $eegLines = & dumpbin.exe /exports build/Release/gaborfit_eeg.dll 2>&1
+          $eegExitCode = $LASTEXITCODE
+          $eegText = $eegLines -join [Environment]::NewLine
+          if ($eegExitCode -ne 0) { Write-Host $eegText; throw "EEG dumpbin failed with exit code $eegExitCode" }
+          $cleanPattern = '(?m)^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+gaborfit_eeg_clean(?:\s|$)'
+          $eegAbiPattern = '(?m)^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+gaborfit_eeg_abi_version(?:\s|$)'
+          if (-not [regex]::IsMatch($eegText, $cleanPattern) -or -not [regex]::IsMatch($eegText, $eegAbiPattern)) {
+            Write-Host 'Complete EEG export table:'; Write-Host $eegText
+            throw 'Missing exact undecorated EEG C ABI exports'
+          }
+      - name: Install package
+        run: cmake --install build --config Release --prefix "${{ github.workspace }}/install"
+      - name: Configure installed-package consumer (Unix)
+        if: runner.os != 'Windows'
+        run: cmake -S tests/install_consumer -B consumer-build -DCMAKE_PREFIX_PATH="${{ github.workspace }}/install" -DCMAKE_BUILD_TYPE=Release
+      - name: Configure installed-package consumer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake -S tests/install_consumer -B consumer-build -DCMAKE_PREFIX_PATH="$env:GITHUB_WORKSPACE/install"
+      - name: Build installed-package consumer
+        run: cmake --build consumer-build --config Release
+      - name: Run installed-package consumer (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          export LD_LIBRARY_PATH="${{ github.workspace }}/install/lib:${LD_LIBRARY_PATH:-}"
+          export DYLD_LIBRARY_PATH="${{ github.workspace }}/install/lib:${DYLD_LIBRARY_PATH:-}"
+          ./consumer-build/gaborfit_install_consumer
+      - name: Run installed-package consumer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:GITHUB_WORKSPACE/install/bin;$env:PATH"
+          & consumer-build/Release/gaborfit_install_consumer.exe
+
